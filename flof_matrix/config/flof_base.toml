@@ -345,7 +345,7 @@ g3_chop_va_atr_ratio = 1.5     # VA width / ATR ratio below this = chop
 [scoring.tier1]
 # Minimum Tier 1 score required to proceed to Tier 2.
 # Even 13/14 total is rejected if Tier 1 < gate_minimum.
-gate_minimum = 7
+gate_minimum = 6
 
 # +2 Daily/4H Trend Alignment
 trend_alignment_full = 2       # Full points when macro bias aligns

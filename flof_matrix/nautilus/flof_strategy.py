@@ -856,7 +856,7 @@ class FlofStrategy:
             self._atr,
             use_vp=self._config.is_toggle_enabled("T17"),
             atr_fallback_mult=self._config.get("stops.atr_stop_multiplier", 2.0),
-            min_stop_atr_mult=self._config.get("stops.min_stop_atr_mult", 1.5),
+            min_stop_atr_mult=self._config.get("stops.min_stop_atr_mult", 1.0),
         )
         target_r = self._config.get("phase1.target_r", 2.0)
         pre_risk = abs(self._current_price - stop_price)
@@ -897,7 +897,7 @@ class FlofStrategy:
             has_liquidity_near_target=has_liquidity_near_target,
             entry_price=self._current_price,
             stop_price=stop_price,
-            target_price=0.0,  # Recalculated from R multiple below
+            target_price=pre_target,  # Pre-scoring estimate; recalculated by grade after scoring
             cascade_active=sudden_move == SuddenMoveType.TYPE_B,
             # Wire config values through (profile overrides apply)
             tier1_gate_minimum=self._config.get("scoring.tier1.gate_minimum", 7),
@@ -907,14 +907,10 @@ class FlofStrategy:
             g2_required=self._config.get("gates.g2_inducement_required", True),
         )
 
-        # Calculate target using config R multiple (not hardcoded 2R)
+        # Validate risk before scoring
         risk = abs(ctx.entry_price - ctx.stop_price)
         if risk == 0:
             return
-        if poi.direction == TradeDirection.LONG:
-            ctx = ScoringContext(**{**ctx.__dict__, "target_price": ctx.entry_price + target_r * risk})
-        else:
-            ctx = ScoringContext(**{**ctx.__dict__, "target_price": ctx.entry_price - target_r * risk})
 
         # Score
         if self._shadow_mode:

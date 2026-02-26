@@ -33,7 +33,7 @@ class TestConfigManager:
     def test_dot_notation_access(self):
         cm = ConfigManager()
         cm.load(CONFIG_PATH, profile="futures")
-        assert cm.get("scoring.tier1.gate_minimum") == 7
+        assert cm.get("scoring.tier1.gate_minimum") == 6
         assert cm.get("grading.a_plus_min") == 14
         assert cm.get("grading.a_min") == 12
         assert cm.get("grading.b_min") == 9
@@ -66,7 +66,7 @@ class TestConfigManager:
         cm = ConfigManager()
         cm.load(CONFIG_PATH, profile="futures")
         cm.reload()
-        assert cm.get("scoring.tier1.gate_minimum") == 7
+        assert cm.get("scoring.tier1.gate_minimum") == 6
 
     def test_hot_reload_blocked_in_live_mode(self):
         cm = ConfigManager()
