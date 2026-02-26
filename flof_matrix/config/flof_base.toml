@@ -472,12 +472,16 @@ vp_bucket_count = 50               # Number of price buckets for micro VP
 # ATR fallback stop (T17 OFF)
 atr_stop_multiplier = 2.0         # 2x 1m ATR below entry
 
+# Stop floor — minimum distance to survive bar noise
+min_stop_atr_mult = 1.0           # Stop must be at least 1.0x ATR from entry (prevents suicide stops)
+
 # Micro trailing stop — move to breakeven once this R-multiple reached
-micro_trail_activation_r = 1.5    # At +1.5R, stop moves to BE+1tick
+micro_trail_activation_r = 1.0    # At +1.0R, stop moves to BE+1tick
 
 # Tape Failure exit (T18)
 tape_failure_sell_delta = 0.80     # 80% sell delta triggers exit
 tape_failure_tightened_delta = 0.65 # Tightened when 20 SMA health check fails (T21)
+t18_volume_threshold_pct = 0.50    # T18 only fires when bar volume >= 50% of session avg
 
 # Toxicity exit (T48)
 toxicity_timer_seconds = 120       # Exit if no favorable movement in 2 min

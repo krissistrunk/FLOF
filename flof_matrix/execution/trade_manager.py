@@ -166,8 +166,13 @@ class TradeManager:
         self,
         pos: ManagedPosition,
         current_price: float,
+        favorable_price: float | None = None,
     ) -> dict | None:
-        """Micro trailing stop: once price reaches +1R, move stop to breakeven.
+        """Micro trailing stop: once price reaches activation R, move stop to breakeven.
+
+        Uses favorable_price (bar_high for longs, bar_low for shorts) when
+        provided, so that intra-bar wicks that touch the threshold trigger
+        breakeven protection even if the bar closes below it.
 
         Activates before Phase 1 partial. Prevents winners from becoming losers.
         Only fires once (sets breakeven_set flag). Does NOT change phase.
@@ -181,10 +186,14 @@ class TradeManager:
         if risk == 0:
             return None
 
+        # Use favorable extreme (bar_high/bar_low) when available,
+        # fall back to close price for backward compatibility
+        check_price = favorable_price if favorable_price is not None else current_price
+
         if pos.direction == TradeDirection.LONG:
-            r_multiple = (current_price - pos.entry_price) / risk
+            r_multiple = (check_price - pos.entry_price) / risk
         else:
-            r_multiple = (pos.entry_price - current_price) / risk
+            r_multiple = (pos.entry_price - check_price) / risk
 
         if r_multiple >= self._micro_trail_activation_r:
             be_price = pos.entry_price + (

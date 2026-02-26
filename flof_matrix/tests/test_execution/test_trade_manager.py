@@ -167,6 +167,38 @@ class TestTradeManager:
         result = tm.check_micro_trail(pos, 5010.0)
         assert result is None
 
+    def test_micro_trail_favorable_price_triggers(self):
+        """Micro trail triggers when bar high reaches +1R even if close is below."""
+        tm = self.make_tm()
+        pos = make_position()  # entry=5000, stop=4990, risk=10
+        # Close at 5005 (+0.5R) but bar high at 5012 (+1.2R)
+        result = tm.check_micro_trail(pos, 5005.0, favorable_price=5012.0)
+        assert result is not None
+        assert result["action"] == "micro_trail"
+        assert result["new_stop"] == 5000.25
+
+    def test_micro_trail_favorable_price_not_enough(self):
+        """Micro trail does NOT trigger when even bar high is below threshold."""
+        tm = self.make_tm()
+        pos = make_position()  # entry=5000, stop=4990, risk=10
+        # Close at 5003, bar high at 5008 — both below +1R (5010)
+        result = tm.check_micro_trail(pos, 5003.0, favorable_price=5008.0)
+        assert result is None
+
+    def test_micro_trail_favorable_price_short(self):
+        """Micro trail for SHORT uses bar_low as favorable_price."""
+        tm = self.make_tm()
+        pos = make_position(
+            direction=TradeDirection.SHORT,
+            entry_price=5000.0,
+            stop_price=5010.0,
+            target_price=4980.0,
+        )
+        # Close at 4995 (+0.5R) but bar low at 4988 (+1.2R)
+        result = tm.check_micro_trail(pos, 4995.0, favorable_price=4988.0)
+        assert result is not None
+        assert result["new_stop"] == 4999.75  # BE - 1 tick for short
+
     def test_phase2_fixed_trail_fallback(self):
         """Phase 2 uses fixed 2R trail when no BOS/LVN available."""
         tm = self.make_tm()

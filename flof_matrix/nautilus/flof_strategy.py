@@ -856,13 +856,15 @@ class FlofStrategy:
             self._atr,
             use_vp=self._config.is_toggle_enabled("T17"),
             atr_fallback_mult=self._config.get("stops.atr_stop_multiplier", 2.0),
+            min_stop_atr_mult=self._config.get("stops.min_stop_atr_mult", 1.5),
         )
+        target_r = self._config.get("phase1.target_r", 2.0)
         pre_risk = abs(self._current_price - stop_price)
         if pre_risk > 0:
             if poi.direction == TradeDirection.LONG:
-                pre_target = self._current_price + 2 * pre_risk
+                pre_target = self._current_price + target_r * pre_risk
             else:
-                pre_target = self._current_price - 2 * pre_risk
+                pre_target = self._current_price - target_r * pre_risk
         else:
             pre_target = 0.0
 
@@ -905,14 +907,14 @@ class FlofStrategy:
             g2_required=self._config.get("gates.g2_inducement_required", True),
         )
 
-        # Calculate target
+        # Calculate target using config R multiple (not hardcoded 2R)
         risk = abs(ctx.entry_price - ctx.stop_price)
         if risk == 0:
             return
         if poi.direction == TradeDirection.LONG:
-            ctx = ScoringContext(**{**ctx.__dict__, "target_price": ctx.entry_price + 2 * risk})
+            ctx = ScoringContext(**{**ctx.__dict__, "target_price": ctx.entry_price + target_r * risk})
         else:
-            ctx = ScoringContext(**{**ctx.__dict__, "target_price": ctx.entry_price - 2 * risk})
+            ctx = ScoringContext(**{**ctx.__dict__, "target_price": ctx.entry_price - target_r * risk})
 
         # Score
         if self._shadow_mode:
@@ -1122,7 +1124,10 @@ class FlofStrategy:
                     pos.last_movement_ns = now_ns
 
             # Micro trail: once price reaches +1R, move stop to breakeven
-            micro = self._trade_manager.check_micro_trail(pos, price)
+            # Use bar extreme (high for longs, low for shorts) so intra-bar
+            # wicks that touch the threshold trigger protection immediately
+            favorable = bar_high if pos.direction == TradeDirection.LONG else bar_low
+            micro = self._trade_manager.check_micro_trail(pos, price, favorable_price=favorable)
             if micro:
                 self._trade_manager.apply_micro_trail(pos, micro)
 
@@ -1157,23 +1162,35 @@ class FlofStrategy:
 
             # Tape failure (T18): exit when sell delta overwhelms
             # min_ticks=100 ensures this only fires with real tick data
+            # Volume gate: skip T18 when bar volume < 50% of session average
+            # to prevent ghost exits in low-liquidity sessions
             if self._config.is_toggle_enabled("T18"):
-                sell_delta = self._ofe.calculate_sell_delta_pct(window_seconds=30, min_ticks=100)
-                # T21: tighten threshold when 20 SMA health fails
-                sma_ok = True
-                if self._config.is_toggle_enabled("T21") and len(self._bar_buffer_2m) >= 20:
-                    closes_20 = np.array([b["close"] for b in self._bar_buffer_2m[-20:]])
-                    sma_20 = float(np.mean(closes_20))
-                    if pos.direction == TradeDirection.LONG:
-                        sma_ok = price >= sma_20
-                    else:
-                        sma_ok = price <= sma_20
-                result = self._trade_manager.check_tape_failure(
-                    pos, sell_delta_pct=sell_delta, sma_health_ok=sma_ok,
-                )
-                if result:
-                    self._close_position(pos, now_ns, result["action"], exit_price=price)
-                    continue
+                session_bar_count = len(self._session_bars)
+                if session_bar_count > 0:
+                    avg_session_vol = self._session_volume / session_bar_count
+                    current_bar_vol = self._session_bars[-1]["volume"] if isinstance(self._session_bars[-1], dict) else 0
+                    t18_vol_threshold = self._config.get("stops.t18_volume_threshold_pct", 0.50)
+                    volume_sufficient = current_bar_vol >= avg_session_vol * t18_vol_threshold
+                else:
+                    volume_sufficient = True  # No session data yet, allow T18
+
+                if volume_sufficient:
+                    sell_delta = self._ofe.calculate_sell_delta_pct(window_seconds=30, min_ticks=100)
+                    # T21: tighten threshold when 20 SMA health fails
+                    sma_ok = True
+                    if self._config.is_toggle_enabled("T21") and len(self._bar_buffer_2m) >= 20:
+                        closes_20 = np.array([b["close"] for b in self._bar_buffer_2m[-20:]])
+                        sma_20 = float(np.mean(closes_20))
+                        if pos.direction == TradeDirection.LONG:
+                            sma_ok = price >= sma_20
+                        else:
+                            sma_ok = price <= sma_20
+                    result = self._trade_manager.check_tape_failure(
+                        pos, sell_delta_pct=sell_delta, sma_health_ok=sma_ok,
+                    )
+                    if result:
+                        self._close_position(pos, now_ns, result["action"], exit_price=price)
+                        continue
 
             # T48: Toxicity exit — immediate exit if order flow turns against position
             if self._config.is_toggle_enabled("T48"):

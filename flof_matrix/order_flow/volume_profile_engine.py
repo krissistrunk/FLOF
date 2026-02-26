@@ -108,31 +108,46 @@ class VolumeProfileEngine:
         use_vp: bool = True,
         atr_fallback_mult: float = 2.0,
         lvn_atr_buffer: float = 0.5,
+        min_stop_atr_mult: float = 1.5,
     ) -> float:
-        """T17: Stop behind nearest LVN - (0.5 × ATR); fallback: 2× ATR."""
+        """T17: Stop behind nearest LVN - (0.5 × ATR); fallback: 2× ATR.
+
+        A stop floor of min_stop_atr_mult × ATR is enforced to prevent
+        stops tighter than market noise ("suicide stops").
+        """
         if not use_vp:
             # Fallback: 2x ATR
-            return entry_price - direction * atr_fallback_mult * atr
+            stop = entry_price - direction * atr_fallback_mult * atr
+        else:
+            vp = self.build_micro_vp(window_seconds=60)
+            _, lvn_prices = self.identify_hvn_lvn(vp)
 
-        vp = self.build_micro_vp(window_seconds=60)
-        _, lvn_prices = self.identify_hvn_lvn(vp)
+            if not lvn_prices:
+                # No LVNs found, use ATR fallback
+                stop = entry_price - direction * atr_fallback_mult * atr
+            elif direction > 0:  # Long: stop below entry
+                below_entry = [p for p in lvn_prices if p < entry_price]
+                if below_entry:
+                    nearest_lvn = max(below_entry)
+                    stop = nearest_lvn - lvn_atr_buffer * atr
+                else:
+                    stop = entry_price - atr_fallback_mult * atr
+            else:  # Short: stop above entry
+                above_entry = [p for p in lvn_prices if p > entry_price]
+                if above_entry:
+                    nearest_lvn = min(above_entry)
+                    stop = nearest_lvn + lvn_atr_buffer * atr
+                else:
+                    stop = entry_price + atr_fallback_mult * atr
 
-        if not lvn_prices:
-            # No LVNs found, use ATR fallback
-            return entry_price - direction * atr_fallback_mult * atr
+        # Enforce stop floor: stop must be at least min_stop_atr_mult × ATR
+        # from entry to survive normal bar noise
+        min_distance = min_stop_atr_mult * atr
+        actual_distance = abs(stop - entry_price)
+        if actual_distance < min_distance:
+            stop = entry_price - direction * min_distance
 
-        if direction > 0:  # Long: stop below entry
-            below_entry = [p for p in lvn_prices if p < entry_price]
-            if below_entry:
-                nearest_lvn = max(below_entry)
-                return nearest_lvn - lvn_atr_buffer * atr
-            return entry_price - atr_fallback_mult * atr
-        else:  # Short: stop above entry
-            above_entry = [p for p in lvn_prices if p > entry_price]
-            if above_entry:
-                nearest_lvn = min(above_entry)
-                return nearest_lvn + lvn_atr_buffer * atr
-            return entry_price + atr_fallback_mult * atr
+        return stop
 
     def refine_entry_with_vp(
         self,
