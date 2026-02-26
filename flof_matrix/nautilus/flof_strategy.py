@@ -130,6 +130,10 @@ class FlofStrategy:
         self._trades: list[dict] = []
         self._rejections: list[dict] = []
 
+        # Shadow scoring mode
+        self._shadow_mode: bool = config.get("shadow.enabled", False)
+        self._shadow_safety_dd: float = config.get("shadow.safety_max_drawdown_pct", -0.20)
+
         # Bar history for structural analysis
         self._bar_buffer: list[dict] = []
         self._bar_buffer_max: int = 500  # Rolling window
@@ -747,6 +751,8 @@ class FlofStrategy:
         if not self._active_pois:
             return
 
+        shadow_gates_failed: list[str] = []
+
         poi = self._active_pois[0]
 
         # Build scoring context
@@ -770,24 +776,27 @@ class FlofStrategy:
             direction_int = 1 if poi.direction == TradeDirection.LONG else -1
             dir_score, dir_details = self._ofe.evaluate_directional_order_flow(direction_int)
             if dir_score == 0 and not dir_details.get("has_absorption"):
-                rejection = {
-                    "timestamp_ns": timestamp_ns,
-                    "instrument": self._config.get("system.instrument", "ES"),
-                    "poi_type": poi.type.name,
-                    "poi_price": float(poi.price),
-                    "direction": poi.direction.name,
-                    "premium_discount": "",
-                    "has_inducement": poi.has_inducement,
-                    "is_chop": False,
-                    "rejection_gate": "OF_gate_rejection_block",
-                    "rejection_reason": "REJECTION_BLOCK requires order flow confirmation (CVD divergence or absorption)",
-                    "score_at_rejection": None,
-                    "context": dir_details,
-                }
-                self._rejections.append(rejection)
-                if self._trade_logger:
-                    self._trade_logger.log_rejection(rejection)
-                return
+                if self._shadow_mode:
+                    shadow_gates_failed.append("OF_gate_rejection_block")
+                else:
+                    rejection = {
+                        "timestamp_ns": timestamp_ns,
+                        "instrument": self._config.get("system.instrument", "ES"),
+                        "poi_type": poi.type.name,
+                        "poi_price": float(poi.price),
+                        "direction": poi.direction.name,
+                        "premium_discount": "",
+                        "has_inducement": poi.has_inducement,
+                        "is_chop": False,
+                        "rejection_gate": "OF_gate_rejection_block",
+                        "rejection_reason": "REJECTION_BLOCK requires order flow confirmation (CVD divergence or absorption)",
+                        "score_at_rejection": None,
+                        "context": dir_details,
+                    }
+                    self._rejections.append(rejection)
+                    if self._trade_logger:
+                        self._trade_logger.log_rejection(rejection)
+                    return
 
         # Chop detection from session profiler
         is_chop = self._session_profiler.detect_chop(
@@ -906,28 +915,32 @@ class FlofStrategy:
             ctx = ScoringContext(**{**ctx.__dict__, "target_price": ctx.entry_price - 2 * risk})
 
         # Score
-        signal = self._scorer.score(ctx)
-        if signal is None:
-            # Track rejection with detailed gate/reason from scorer
-            rej = self._scorer.last_rejection or {}
-            rejection = {
-                "timestamp_ns": timestamp_ns,
-                "instrument": self._config.get("system.instrument", "ES"),
-                "poi_type": poi.type.name,
-                "poi_price": float(poi.price),
-                "direction": poi.direction.name,
-                "premium_discount": premium_discount,
-                "has_inducement": poi.has_inducement,
-                "is_chop": is_chop,
-                "rejection_gate": rej.get("gate", "unknown"),
-                "rejection_reason": rej.get("reason", "unknown"),
-                "score_at_rejection": rej.get("tier1_score"),
-                "context": None,
-            }
-            self._rejections.append(rejection)
-            if self._trade_logger:
-                self._trade_logger.log_rejection(rejection)
-            return
+        if self._shadow_mode:
+            signal, scorer_gates = self._scorer.score_shadow(ctx)
+            shadow_gates_failed.extend(scorer_gates)
+        else:
+            signal = self._scorer.score(ctx)
+            if signal is None:
+                # Track rejection with detailed gate/reason from scorer
+                rej = self._scorer.last_rejection or {}
+                rejection = {
+                    "timestamp_ns": timestamp_ns,
+                    "instrument": self._config.get("system.instrument", "ES"),
+                    "poi_type": poi.type.name,
+                    "poi_price": float(poi.price),
+                    "direction": poi.direction.name,
+                    "premium_discount": premium_discount,
+                    "has_inducement": poi.has_inducement,
+                    "is_chop": is_chop,
+                    "rejection_gate": rej.get("gate", "unknown"),
+                    "rejection_reason": rej.get("reason", "unknown"),
+                    "score_at_rejection": rej.get("tier1_score"),
+                    "context": None,
+                }
+                self._rejections.append(rejection)
+                if self._trade_logger:
+                    self._trade_logger.log_rejection(rejection)
+                return
 
         # Portfolio gates
         passed, reason = self._portfolio.evaluate_gates(
@@ -936,22 +949,33 @@ class FlofStrategy:
             timestamp_ns,
         )
         if not passed:
-            logger.info("Portfolio gate rejected: %s", reason)
-            rejection = {
-                "timestamp_ns": timestamp_ns,
-                "instrument": self._config.get("system.instrument", "ES"),
-                "poi_type": poi.type.name,
-                "direction": poi.direction.name,
-                "rejection_gate": reason,
-                "rejection_reason": reason,
-                "score_at_rejection": signal.score_total,
-                "poi_price": float(poi.price),
-                "context": None,
-            }
-            self._rejections.append(rejection)
-            if self._trade_logger:
-                self._trade_logger.log_rejection(rejection)
-            return
+            if self._shadow_mode:
+                shadow_gates_failed.append(f"portfolio:{reason}")
+            else:
+                logger.info("Portfolio gate rejected: %s", reason)
+                rejection = {
+                    "timestamp_ns": timestamp_ns,
+                    "instrument": self._config.get("system.instrument", "ES"),
+                    "poi_type": poi.type.name,
+                    "direction": poi.direction.name,
+                    "rejection_gate": reason,
+                    "rejection_reason": reason,
+                    "score_at_rejection": signal.score_total,
+                    "poi_price": float(poi.price),
+                    "context": None,
+                }
+                self._rejections.append(rejection)
+                if self._trade_logger:
+                    self._trade_logger.log_rejection(rejection)
+                return
+
+        # Shadow safety: halt if drawdown exceeds safety limit
+        if self._shadow_mode and self._peak_equity > 0:
+            current_dd = (self._equity - self._peak_equity) / self._peak_equity
+            if current_dd < self._shadow_safety_dd:
+                logger.warning("Shadow safety stop: drawdown %.1f%% exceeds limit %.1f%%",
+                               current_dd * 100, self._shadow_safety_dd * 100)
+                return
 
         # Apply fill engine slippage to entry
         if self._fill_engine is not None:
@@ -975,7 +999,11 @@ class FlofStrategy:
         # Execute
         bracket = self._execution.execute_signal(signal, self._equity)
         if bracket is None:
-            return
+            if self._shadow_mode and shadow_gates_failed:
+                # Shadow: force 1-contract bracket when tiny sizing rounds to 0
+                bracket = self._execution.create_oco_bracket(signal, 1)
+            else:
+                return
 
         self._trade_count += 1
         self._trade_just_executed = True
@@ -1031,13 +1059,15 @@ class FlofStrategy:
             "poi_type": poi.type.name,
             "timestamp_ns": timestamp_ns,
             "active_toggles": None,
+            "shadow_gates_failed": shadow_gates_failed if self._shadow_mode else [],
         }
         self._trades.append(trade_record)
         if self._trade_logger:
             self._trade_logger.log_trade(trade_record)
 
-        # Update risk overlord
-        self._risk.record_order(timestamp_ns)
+        # Update risk overlord (skip in shadow mode to prevent nuclear flattens)
+        if not self._shadow_mode:
+            self._risk.record_order(timestamp_ns)
         self._risk.update_positions(self._portfolio.open_position_count)
 
         # Publish event
@@ -1206,11 +1236,12 @@ class FlofStrategy:
                 trade["exit_time_ns"] = now_ns
                 break
 
-        # Track win/loss for risk management
-        if pnl_dollars > 0:
-            self._risk.record_win()
-        elif pnl_dollars < 0:
-            self._risk.record_loss()
+        # Track win/loss for risk management (skip in shadow mode to prevent nuclear flattens)
+        if not self._shadow_mode:
+            if pnl_dollars > 0:
+                self._risk.record_win()
+            elif pnl_dollars < 0:
+                self._risk.record_loss()
 
         # Remove from trackers
         self._trade_manager.remove_position(pos.position_id)

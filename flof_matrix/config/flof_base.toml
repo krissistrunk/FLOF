@@ -959,6 +959,15 @@ macro_dump_tighten_pct = 0.50        # Tighten stops 50% on MACRO_DUMP event
 
 
 # ══════════════════════════════════════════════════════════════════════
+# SHADOW SCORING MODE
+# Execute all candidates permissively, tag which gates would have rejected.
+# ══════════════════════════════════════════════════════════════════════
+[shadow]
+enabled = false                        # Master switch (also via --shadow CLI flag)
+safety_max_drawdown_pct = -0.20        # Emergency stop: halt if drawdown exceeds -20%
+shadow_position_size_pct = 0.005       # Uniform 0.5% risk for gate-rejected trades
+
+# ══════════════════════════════════════════════════════════════════════
 # END OF FLOF_BASE.TOML
 # ══════════════════════════════════════════════════════════════════════
 # Next file: config/profiles/profile_futures.toml (ES Futures overrides)

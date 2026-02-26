@@ -97,6 +97,9 @@ class ScoringContext:
     cascade_active: bool = False
     cascade_multiplier: float = 0.50
 
+    # Shadow mode
+    shadow_position_size_pct: float = 0.005
+
     # Execution
     entry_price: float = 0.0
     stop_price: float = 0.0
@@ -195,6 +198,70 @@ class ConfluenceScorer:
             position_size_pct=size_pct,
             order_type=ctx.order_type,
         )
+
+    def score_shadow(self, ctx: ScoringContext) -> tuple[TradeSignal, list[str]]:
+        """Shadow scoring: always returns a signal, collecting failed gates instead of rejecting.
+
+        Returns (TradeSignal, list_of_failed_gate_names). Empty list = clean trade.
+        """
+        failed_gates: list[str] = []
+
+        # === GATE 1: Premium/Discount ===
+        if not self._check_g1(ctx):
+            failed_gates.append("G1_premium_discount")
+
+        # === GATE 2: Inducement ===
+        if not self._check_g2(ctx):
+            failed_gates.append("G2_inducement")
+
+        # === GATE 3: Chop Detector ===
+        if not self._check_g3(ctx):
+            failed_gates.append("G3_chop_detector")
+
+        # === TIER 1: Core SMC + Order Flow (10 pts max) ===
+        tier1 = self._score_tier1(ctx)
+
+        if tier1 < ctx.tier1_gate_minimum:
+            failed_gates.append("T1_gate_minimum")
+
+        # === TIER 2 & 3 ===
+        tier2 = self._score_tier2(ctx)
+        tier3 = self._score_tier3(ctx)
+        total = tier1 + tier2 + tier3
+
+        # === GRADE ASSIGNMENT ===
+        grade = self._assign_grade(total, ctx)
+
+        # Synthetic MA POIs capped at B
+        if ctx.poi.type == POIType.SYNTHETIC_MA and grade in (Grade.A_PLUS, Grade.A):
+            grade = Grade.B
+
+        # Grade C: record failure, force to B so we get a valid signal
+        if grade == Grade.C:
+            failed_gates.append("grade_C")
+            grade = Grade.B
+
+        # === POSITION SIZING ===
+        if failed_gates:
+            size_pct = ctx.shadow_position_size_pct
+        else:
+            size_pct = self._calculate_size(grade, ctx)
+
+        signal = TradeSignal(
+            direction=ctx.poi.direction,
+            poi=ctx.poi,
+            entry_price=ctx.entry_price,
+            stop_price=ctx.stop_price,
+            target_price=ctx.target_price,
+            grade=grade,
+            score_total=total,
+            score_tier1=tier1,
+            score_tier2=tier2,
+            score_tier3=tier3,
+            position_size_pct=size_pct,
+            order_type=ctx.order_type,
+        )
+        return signal, failed_gates
 
     def _check_g1(self, ctx: ScoringContext) -> bool:
         """G1: Premium/Discount — longs in discount only, shorts in premium only."""

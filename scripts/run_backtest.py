@@ -49,6 +49,8 @@ def parse_args():
                         help="Backtest engine: 'manual' (Python loop) or 'nautilus' (NautilusTrader)")
     parser.add_argument("--tick-data", type=str, default=None,
                         help="Path to .dbn.zst trade tick file (auto-discovers *trades*.dbn.zst in data dir if omitted)")
+    parser.add_argument("--shadow", action="store_true",
+                        help="Shadow scoring mode: execute all candidates, tag gate failures")
     return parser.parse_args()
 
 
@@ -176,6 +178,12 @@ def main():
         fill_level=args.fill_level,
         db_dsn=args.db_dsn,
     )
+
+    if args.shadow:
+        runner.setup()
+        runner._strategy._config._config["shadow"] = {"enabled": True}
+        runner._strategy._shadow_mode = True
+        logging.info("  Shadow mode: ENABLED")
 
     if args.engine == "nautilus":
         result = runner.run_nautilus(bars)
