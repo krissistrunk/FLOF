@@ -1,0 +1,962 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║              FLOF MATRIX — MASTER CONFIGURATION FILE               ║
+# ║         Fractal Liquidity & Order Flow Trading System               ║
+# ║                                                                      ║
+# ║  Version: 4.0 (Production)                                          ║
+# ║  Purpose: Base defaults for ALL asset classes.                       ║
+# ║           Profile overrides in config/profiles/profile_{class}.toml  ║
+# ║           Per-instrument overrides in config/instruments/            ║
+# ║                                                                      ║
+# ║  CONFIG MERGE ORDER (last wins):                                     ║
+# ║    1. flof_base.toml           ← YOU ARE HERE (universal defaults)   ║
+# ║    2. profile_{asset_class}.toml  ← Asset class overrides           ║
+# ║    3. constants.{INSTRUMENT}.toml ← Per-ticker Epistemic overrides  ║
+# ║                                                                      ║
+# ║  CLASSIFICATION: CONFIDENTIAL                                        ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 1: SYSTEM SETTINGS
+# Controls system-wide behavior, safety locks, and operational mode.
+# ══════════════════════════════════════════════════════════════════════
+
+[system]
+# CRITICAL: When true, safety toggles T24-T28 CANNOT be disabled.
+# Set to false ONLY for backtesting. Paper trading with real money = true.
+live_mode = false
+
+# Allow runtime config reload without restart.
+# Ignored when live_mode = true (live requires full restart for safety).
+hot_reload = true
+
+# Logging verbosity: "debug", "info", "warning", "error"
+log_level = "info"
+
+# Current asset class profile to load. Options:
+# "futures", "crypto", "equities", "forex", "options", "carry"
+profile = "futures"
+
+# Current instrument to trade. Profile determines valid instruments.
+# Examples: "ES", "NQ", "BTC", "ETH", "NVDA", "AAPL", "EUR/USD"
+instrument = "ES"
+
+# Timezone for session calculations. Used by Killzone and EOD flatten.
+timezone = "US/Eastern"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 2: FEATURE TOGGLES (T01 – T50)
+#
+# RULES:
+#   1. Every toggle defaults to ON (true).
+#   2. Turning a parent OFF automatically forces children OFF.
+#   3. Safety toggles (T24-T28) are LOCKED ON when live_mode = true.
+#   4. Each toggle check must be a single boolean. ZERO compute when OFF.
+#
+# DEPENDENCY TREE (parent → child):
+#   T01 → T02 → T03
+#   T07 → T08, T09, T18
+#   T16 → T12, T13, T14, T15
+#   T19 → T20
+#   T18 + T19 → T21
+#   T29 → T30
+#   T31 → T32
+#   T46 → T47
+# ══════════════════════════════════════════════════════════════════════
+
+
+# ─── Layer 1: Market Structure & POI Mapping ─────────────────────────
+
+[toggles.structure]
+
+# T01: HTF Structure Mapper — Daily/4H bias detection.
+# OFF: No macro bias. Trend Alignment always scores 0.
+T01_htf_structure_mapper = true
+
+# T02: HTF Regime Filter — Weekly/Monthly 200 SMA regime awareness.
+# Depends: T01. OFF: Trend Alignment always awards full +2 when aligned.
+T02_htf_regime_filter = true
+
+# T03: Synthetic MA POI — Creates watch zones at Weekly/Monthly 200 SMA
+# when no existing POI is present. Capped at B grade.
+# Depends: T02. OFF: Only traditional SMC POIs (OB, FVG, liquidity pool).
+T03_synthetic_ma_poi = true
+
+# T04: POI Freshness Tracking — Tracks first-touch vs mitigated POIs.
+# OFF: All POIs treated as fresh. +1 Fresh POI always awarded.
+T04_poi_freshness_tracking = true
+
+# T05: Liquidity Sweep Detection — PDH/PDL, session H/L sweeps.
+# OFF: +2 Major Liquidity Sweep always scores 0. Fewer A+ trades.
+T05_liquidity_sweep_detection = true
+
+# T31: Multi-Timeframe POI Hierarchy — Tags POIs by timeframe origin.
+# Higher TF POIs score higher. OFF: All POIs weighted equally.
+T31_mtf_poi_hierarchy = true
+
+# T32: POI Clustering — Detects overlapping POIs across timeframes.
+# Depends: T31. OFF: No confluence bonus for stacked POIs.
+T32_poi_clustering = true
+
+# T39: Extreme/Decisional POI Tagging — Classifies OBs as Extreme
+# (at swing highs/lows) or Decisional (mid-range continuation).
+# OFF: All OBs treated identically.
+T39_extreme_decisional_tagging = true
+
+# T40: Unicorn POI Detection — Identifies FVGs that overlap with OBs.
+# Highest-probability SMC pattern. OFF: No Unicorn identification.
+T40_unicorn_poi_detection = true
+
+
+# ─── Layer 2: Predator State Machine & Execution ────────────────────
+
+[toggles.execution]
+
+# T06: 1m CHOCH Detection — CRITICAL entry confirmation.
+# OFF: Bot enters on POI tap alone (DANGEROUS, research only).
+T06_choch_detection = true
+
+# T07: Order Flow Confirmation — CVD divergence + footprint imbalances.
+# OFF: OF criterion scores 0. Structure-only entries.
+T07_order_flow_confirmation = true
+
+# T08: Absorption Detection — Compares T&S tape to L2 book depth.
+# Depends: T07. OFF: CVD alone used (+1 max instead of +2).
+T08_absorption_detection = true
+
+# T09: Whale Watch Filter — Large block trade detection.
+# Depends: T07. OFF: All trades treated equally regardless of size.
+T09_whale_watch_filter = true
+
+# T10: Killzone Time Gate — Restricts entries to high-probability windows.
+# OFF: Trades allowed anytime. Killzone timing scores 0.
+T10_killzone_time_gate = true
+
+# T11: Fast Move Switch — Market order on V-shape if absorption + delta spike.
+# OFF: Always waits for CHOCH close + limit at FVG. Misses fast reversals.
+T11_fast_move_switch = true
+
+# T33: DataBento Schema Shifting — Switches data tier based on state.
+# Scouting=OHLCV, Stalking=1m, Kill=trades+tbbo. OFF: Always full feed.
+T33_schema_shifting = true
+
+# T34: Proximity Halo Dynamic Sizing — ATR-based halo that triggers
+# state transitions. OFF: Fixed halo distance.
+T34_proximity_halo_dynamic = true
+
+
+# ─── Layer 3: Velez Momentum Layers ─────────────────────────────────
+
+[toggles.velez]
+
+# T16: Master switch for ALL Velez layers. Forces T12-T15 OFF.
+# OFF: Reverts rubric to original 10-point v1.0 behavior.
+T16_all_velez_layers = true
+
+# T12: 20 SMA Halt Confluence — 2m 20 SMA within POI zone.
+# Depends: T16. OFF: No halt confluence bonus.
+T12_20sma_halt_confluence = true
+
+# T13: Flat 200 SMA Confluence — Flat 2m 200 SMA within POI zone.
+# Depends: T16. OFF: No flat 200 SMA bonus.
+T13_flat_200sma_confluence = true
+
+# T14: Elephant Bar Confirmation — Wide-range candle with body ≥70%.
+# Depends: T16. OFF: No candle structure bonus.
+T14_elephant_bar_confirmation = true
+
+# T15: 20 SMA Micro-Trend Alignment — Slope + price position on 2m 20 SMA.
+# Depends: T16. OFF: No micro-trend alignment bonus.
+T15_20sma_micro_trend = true
+
+
+# ─── Layer 4: Risk Management & Trade Management ───────────────────
+
+[toggles.risk]
+
+# T17: HVN/LVN Stop Placement — Volume profile intelligence for stops.
+# OFF: Falls back to simple 2x 1m ATR stop.
+T17_hvn_lvn_stop_placement = true
+
+# T18: Conditional Tape Failure Exit — Early exit when HVN breaks on tape.
+# Depends: T07. OFF: Relies exclusively on hard OCO stop.
+T18_conditional_tape_failure = true
+
+# T19: Structural Node Trail — Dynamic trail behind BOS + LVN moats.
+# OFF: Fixed 2R trailing stop for runners.
+T19_structural_node_trail = true
+
+# T20: RBI/GBI Hold Filter — Candle-level hold signal for runners.
+# Depends: T19. OFF: CHOCH evaluated on every counter-trend candle.
+T20_rbi_gbi_hold_filter = true
+
+# T21: 20 SMA Health Check — Tightens Tape Failure threshold when momentum weakens.
+# Depends: T18 AND T19. OFF: Threshold stays at 80% delta always.
+T21_20sma_health_check = true
+
+# T22: 200 SMA Exit Watch Zone — Lowers climax exit threshold when
+# Weekly/Monthly 200 SMA converges with target.
+# OFF: Climax Trigger always requires full absorption + delta stall.
+T22_200sma_exit_watch_zone = true
+
+# T23: Phase 1 Fixed Partial (50%) — Take 50% at first internal liquidity.
+# OFF: Full position rides to macro target or stop. Higher variance.
+T23_phase1_fixed_partial = true
+
+# T35: Toxicity Timer — Exits trade if no favorable movement within N seconds.
+# OFF: No time-based exit. Only price-based exits.
+T35_toxicity_timer = true
+
+# T36: A+ Scale-Out Override — A+ trades take 33% partial instead of 50%.
+# Allows larger runner on highest-quality setups.
+# OFF: All grades use same 50% partial.
+T36_a_plus_scaleout = true
+
+# T48: Toxicity Exit — Immediate exit if order flow turns against position.
+# Combines delta reversal + velocity + absorption failure.
+# OFF: No toxicity-based early exit.
+T48_toxicity_exit = true
+
+
+# ─── Layer 5: Safety & Circuit Breakers ─────────────────────────────
+# ⚠️  T24-T28 are LOCKED ON when live_mode = true. Cannot be disabled.
+
+[toggles.safety]
+
+# T24: OCO Bracket Enforcement — Every entry MUST have exchange-native OCO.
+# OFF: NEVER in live. Research only to measure OCO impact on P&L.
+T24_oco_bracket_enforcement = true
+
+# T25: Anti-Spam Rate Limiter — Max orders per minute.
+# OFF: NEVER in live. Research only.
+T25_anti_spam_rate_limiter = true
+
+# T26: Fat Finger Position Limit — Max concurrent positions.
+# OFF: NEVER in live. Research only.
+T26_fat_finger_position_limit = true
+
+# T27: Daily Drawdown Breaker — Shuts down when daily P&L hits limit.
+# OFF: NEVER in live. Research only.
+T27_daily_drawdown_breaker = true
+
+# T28: Stale Data Monitor — Detects frozen data feeds.
+# OFF: NEVER in live. Bot trades on potentially stale data.
+T28_stale_data_monitor = true
+
+# T29: Sudden Move Classifier — Type A/B/C detection.
+# OFF: Bot treats all market conditions identically.
+T29_sudden_move_classifier = true
+
+# T30: Cascade Position Override — 50% size reduction during Type B cascades.
+# Depends: T29. OFF: Full graded risk in extreme volatility.
+T30_cascade_position_override = true
+
+
+# ─── Layer 6: Multi-Asset & Advanced Features ──────────────────────
+
+[toggles.multi_asset]
+
+# T37: Cross-Asset Correlation Monitor — Tracks correlation between
+# positions across asset classes. Feeds P2 gate in PortfolioManager.
+# OFF: No cross-asset correlation awareness.
+T37_cross_asset_correlation = true
+
+# T38: Macro Dump Detector — Monitors crypto liquidation cascades
+# and their impact on other asset classes.
+# OFF: No macro dump events published.
+T38_macro_dump_detector = true
+
+# T41: Equities Earnings Shield — Blocks entries 24h before/after earnings.
+# OFF: Trades through earnings announcements.
+T41_earnings_shield = true
+
+# T42: Crypto Funding Rate Monitor — Tracks perp funding rates.
+# Extreme funding = crowded trade = higher reversal probability.
+# OFF: No funding rate awareness.
+T42_funding_rate_monitor = true
+
+# T43: Crypto OI Delta Tracker — Monitors Open Interest changes.
+# Large OI drop + price drop = liquidation cascade (Type B candidate).
+# OFF: No OI tracking.
+T43_oi_delta_tracker = true
+
+# T44: Forex Session Overlap Boost — Higher confidence during
+# London/NY overlap for forex pairs. OFF: All sessions equal.
+T44_forex_session_overlap = true
+
+# T45: Multi-Exchange Arbitrage — Cross-exchange price divergence
+# detection for crypto. OFF: Single exchange only.
+T45_multi_exchange_arb = false  # Default OFF, Phase 6+
+
+
+# ─── Layer 7: Options & Carry Trade ────────────────────────────────
+
+[toggles.options]
+
+# T46: Options Routing — Routes qualifying signals to options strategies.
+# OFF: All executions use underlying instrument (futures/equity/crypto).
+T46_options_routing = false  # Default OFF until Phase 3
+
+# T47: GEX-Aware Selling — Blocks options selling when GEX is negative.
+# Depends: T46. OFF: Options selling allowed regardless of GEX state.
+T47_gex_aware_selling = false  # Default OFF until Phase 3
+
+# T49: Forex Carry Trade Module — Weekly carry strategy for high-yield pairs.
+# Separate strategy instance with own state machine.
+# OFF: No carry trade positions.
+T49_forex_carry_trade = false  # Default OFF until Phase 4
+
+# T50: Iron Condor Chop Monetization — Sells Iron Condors when
+# SessionProfiler detects chop (G3 gate blocking directional).
+# OFF: Bot sits idle during chop. No range monetization.
+T50_iron_condor_chop = false  # Default OFF until Phase 3
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 3: CONFLUENCE SCORING CONSTANTS
+# All thresholds for the 14-point rubric + 3 structural gates.
+# ══════════════════════════════════════════════════════════════════════
+
+
+# ─── 3.1 Structural Gates (must ALL pass before scoring) ────────────
+
+[gates]
+
+# G1: Premium/Discount Filter
+# Longs must be in discount (below 50% of range). Shorts in premium.
+# This ensures entries align with institutional value areas.
+g1_premium_discount_enabled = true
+
+# G2: Inducement Verification
+# Requires a liquidity sweep (inducement) before POI tap.
+# Without inducement, the POI may hold but probability is lower.
+g2_inducement_required = true
+
+# G3: Chop Detector
+# If session Value Area width < chop_threshold × ATR, market is choppy.
+# Blocks directional entries. Can trigger T50 Iron Condor instead.
+g3_chop_detector_enabled = true
+g3_chop_va_atr_ratio = 1.5     # VA width / ATR ratio below this = chop
+
+
+# ─── 3.2 Tier 1: Core SMC + Order Flow (10 points max) ─────────────
+
+[scoring.tier1]
+# Minimum Tier 1 score required to proceed to Tier 2.
+# Even 13/14 total is rejected if Tier 1 < gate_minimum.
+gate_minimum = 7
+
+# +2 Daily/4H Trend Alignment
+trend_alignment_full = 2       # Full points when macro bias aligns
+trend_alignment_reduced = 1    # Reduced when regime filter downgrades
+
+# +2 Major Liquidity Sweep
+liquidity_sweep_points = 2
+
+# +1 Fresh (Unmitigated) POI
+fresh_poi_points = 1
+
+# +2 1m CHOCH with Displacement
+choch_displacement_points = 2
+choch_displacement_atr_mult = 1.5   # CHOCH candle must be > 1.5x 1m ATR
+
+# +2 Order Flow Confirmation
+of_full_points = 2             # CVD divergence + stacked imbalances
+of_partial_points = 1          # CVD divergence alone (T08 OFF)
+
+# +1 Killzone Timing
+killzone_timing_points = 1
+
+
+# ─── 3.3 Tier 2: Velez Momentum Layers (4 points max) ──────────────
+
+[scoring.tier2]
+
+# +1 20 SMA Halt Confluence
+sma_halt_points = 1
+
+# +1 Flat 200 SMA Confluence
+flat_200_points = 1
+
+# +1 Elephant Bar Confirmation
+elephant_bar_points = 1
+elephant_bar_body_pct = 0.70        # Body ≥ 70% of high-low range
+elephant_bar_range_mult = 1.3       # Range ≥ 1.3x average of prior 10
+elephant_bar_lookback = 10          # Number of prior candles for average
+
+# +1 20 SMA Micro-Trend Alignment
+micro_trend_points = 1
+
+
+# ─── 3.4 Tier 3: VWAP + Liquidity (3 points max, from v3.0+) ──────
+
+[scoring.tier3]
+
+# +1 VWAP Standard Deviation Alignment
+vwap_sd_points = 1
+
+# +1 Flip Zone Active (previous support now resistance, or vice versa)
+flip_zone_points = 1
+
+# +1 Liquidity Pool Within 2R of Target
+liquidity_target_points = 1
+
+
+# ─── 3.5 Grade Thresholds ──────────────────────────────────────────
+
+[grading]
+# Total score thresholds for each grade (out of 17 max: 10+4+3)
+a_plus_min = 14      # A+ grade: 14-17 points
+a_min = 12           # A grade: 12-13 points
+b_min = 9            # B grade: 9-11 points
+# Below b_min = Grade C (NO TRADE)
+
+# Synthetic MA POIs are capped at this maximum grade
+synthetic_poi_max_grade = "B"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 4: POSITION SIZING
+# Grade-based risk allocation per trade.
+# ══════════════════════════════════════════════════════════════════════
+
+[sizing]
+# Risk per trade as fraction of account equity
+a_plus_risk = 0.020    # A+: 2.0% of account
+a_risk = 0.015         # A:  1.5% of account
+b_risk = 0.010         # B:  1.0% of account
+
+# Type B cascade override (T30)
+cascade_risk_multiplier = 0.50   # 50% of normal risk during Type B
+
+# A+ scale-out override (T36)
+a_plus_partial_pct = 0.33        # A+ takes 33% partial (vs 50% default)
+default_partial_pct = 0.50       # All other grades take 50% partial
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 5: TRADE MANAGEMENT — PHASE 1/2/3
+# Three-phase profit taking and trailing system.
+# ══════════════════════════════════════════════════════════════════════
+
+[phase1]
+# Phase 1: Fixed Partial — Take partial at nearest internal liquidity
+target_r = 2.0                  # Target first partial at ~2R
+partial_pct = 0.50              # Take 50% off (overridden by T36 for A+)
+move_stop_to = "breakeven"      # After partial: stop to BE + 1 tick
+
+[phase2]
+# Phase 2: Structural Node Trail — Remaining runner targets macro liquidity
+trail_method = "structural_node"  # "structural_node" or "fixed_r"
+fixed_trail_r = 2.0               # Used when T19 is OFF (fallback)
+lvn_moat_lookback = 60             # Seconds of data for micro VP
+bos_timeframe = "5m"               # BOS detection timeframe for trail updates
+
+[phase3]
+# Phase 3: Dynamic Climax Exit — At macro target zone
+climax_absorption_threshold = 0.75  # Absorption score threshold for exit
+climax_delta_stall_pct = 0.30       # Delta within 30% of zero = stall
+watch_zone_atr_mult = 1.0           # 200 SMA watch zone: MA ± 1 ATR
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 6: STOP PLACEMENT
+# ══════════════════════════════════════════════════════════════════════
+
+[stops]
+# HVN/LVN stop placement (T17 ON)
+lvn_moat_atr_buffer = 0.5         # Hard SL = Bottom of LVN − (0.5 × 1m ATR)
+vp_bucket_count = 50               # Number of price buckets for micro VP
+
+# ATR fallback stop (T17 OFF)
+atr_stop_multiplier = 2.0         # 2x 1m ATR below entry
+
+# Tape Failure exit (T18)
+tape_failure_sell_delta = 0.80     # 80% sell delta triggers exit
+tape_failure_tightened_delta = 0.65 # Tightened when 20 SMA health check fails (T21)
+
+# Toxicity exit (T48)
+toxicity_timer_seconds = 120       # Exit if no favorable movement in 2 min
+toxicity_delta_reversal_pct = 0.70 # 70% adverse delta = toxic
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 7: PREDATOR STATE MACHINE
+# State transition thresholds for Scouting → Stalking → Kill → Dormant
+# ══════════════════════════════════════════════════════════════════════
+
+[predator]
+# Proximity Halo — triggers Scouting → Stalking
+proximity_halo_atr_mult = 1.5     # POI ± 1.5 × 1m ATR
+
+# Tape Velocity trigger for Stalking (bypasses proximity)
+tape_velocity_stalking_pct = 300   # 300% above 1hr average = enter Stalking
+
+# Kill Mode data requirements
+kill_mode_schema = "trades_tbbo"   # DataBento schema tier for Kill Mode
+kill_mode_ring_buffer_min = 30     # Minimum seconds of Ring Buffer data
+
+# Hyperfast tap threshold (v3.5)
+hyperfast_tap_seconds = 2          # If POI tap-and-reject in <2s, use Ring Buffer only
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 8: ORDER FLOW CONSTANTS
+# ══════════════════════════════════════════════════════════════════════
+
+[order_flow]
+# CVD divergence detection
+cvd_divergence_lookback_seconds = 30   # Window for CVD vs price comparison
+
+# Absorption detection (T08)
+absorption_volume_threshold = 2.0      # Volume must be 2x session average
+absorption_displacement_max = 0.3      # Max price movement (as fraction of ATR)
+
+# Whale detection (T09)
+whale_print_multiplier = 5.0           # Print size > 5x average = whale
+whale_block_min_prints = 3             # Minimum cluster of large prints
+
+# Ring Buffer
+ring_buffer_capacity = 500000          # Max records (pre-allocated NumPy)
+ring_buffer_window_seconds = 60        # Default sliding window
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 9: HTF STRUCTURE & REGIME
+# ══════════════════════════════════════════════════════════════════════
+
+[htf]
+# Timeframes used by HTF Structure Mapper (M03)
+structure_timeframes = ["15m", "1H", "4H", "D"]
+
+# 200 SMA periods for regime filter (T02)
+weekly_200_sma_period = 200
+monthly_200_sma_period = 200
+
+# Regime classification
+# If structural bias conflicts with macro MA regime, Trend Alignment
+# is downgraded from +2 to +1.
+
+[htf.synthetic_poi]
+# Synthetic MA POI (T03) — watch zone around Weekly/Monthly 200 SMA
+zone_width_mult = 1.5              # MA ± 1.5 × Daily ATR
+max_grade = "B"                    # Capped at B grade
+require_20sma_halt = true          # Must have 20 SMA Halt for entry
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 10: SESSION & KILLZONE TIMES
+# Times in exchange local time. Overridden per profile.
+# ══════════════════════════════════════════════════════════════════════
+
+[killzones]
+# ES Futures killzones (profile_futures.toml overrides these)
+enabled = true
+
+[killzones.ny_am]
+start = "09:30"
+end = "11:30"
+timezone = "US/Eastern"
+
+[killzones.ny_pm]
+start = "13:30"
+end = "15:30"
+timezone = "US/Eastern"
+
+[killzones.london_ny_overlap]
+start = "08:00"
+end = "10:00"
+timezone = "US/Eastern"
+
+# End-of-Day flatten times
+[eod_flatten]
+warning_minutes_before = 10       # EOD_FLATTEN_WARNING broadcast
+futures_flatten_time = "15:50"    # 10 min before close
+equities_flatten_time = "15:50"
+crypto_flatten_time = "none"      # Crypto: no EOD flatten (24/7)
+forex_flatten_time = "16:55"      # 5 min before NY forex close
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 11: SUDDEN MOVE POLICY (Chameleon Protocol)
+# Type A (Scheduled), Type B (Organic Cascade), Type C (Infrastructure)
+# ══════════════════════════════════════════════════════════════════════
+
+[sudden_move]
+# Detection thresholds
+tick_velocity_threshold_pct = 400      # % of 1hr rolling average
+tick_velocity_duration_seconds = 5     # Sustained for this many seconds
+range_expansion_threshold = 3.0        # 3x 1-min ATR
+
+# Type A: Scheduled events (CPI, FOMC, NFP, earnings, token unlocks)
+type_a_cooldown_seconds = 180          # 3 minutes after event
+
+# Type B: Organic cascades (flash crash, liquidation waterfall)
+type_b_position_size_pct = 0.50        # 50% of normal risk
+type_b_cooldown_seconds = 300          # 5 minutes after normalization
+type_b_min_ring_buffer_seconds = 30    # Minimum data before Type B entry
+velocity_normal_threshold_pct = 150    # Recovery: velocity drops below 150%
+spread_normal_threshold_mult = 1.5     # Recovery: spread drops below 1.5x baseline
+
+# Type C: Infrastructure degradation
+type_c_health_window_seconds = 60      # All-green for 60s to resume
+
+# Infrastructure thresholds
+databento_latency_max_ms = 500
+broker_api_latency_max_ms = 400
+data_stale_threshold_ms = 500
+heartbeat_timeout_es_seconds = 5       # No ticks during RTH
+crypto_ws_timeout_seconds = 3          # WebSocket disconnect
+
+# Spread quarantine
+spread_quarantine_es_ticks = 3         # Normal = 1 tick
+spread_quarantine_crypto_mult = 3.0    # 3x of 1hr avg spread
+
+# Delta flip window (for Type B entries)
+delta_flip_window_seconds = 5          # After absorption event
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 12: RISK OVERLORD (M10) — Nuclear Flatten
+# Independent safety module. NEVER part of trading logic.
+# ══════════════════════════════════════════════════════════════════════
+
+[risk_overlord]
+# Order rate limiting (T25)
+max_orders_per_minute = 3
+
+# Position limit (T26)
+max_concurrent_positions = 5         # Overridden per profile
+
+# Daily drawdown breaker (T27)
+max_daily_drawdown_pct = -0.03       # -3% of account equity
+
+# Consecutive loss limit
+max_consecutive_losses = 3           # Triggers Nuclear Flatten
+
+# Stale data timeout (T28)
+stale_data_countdown_seconds = 5     # After alert: 5s to Nuclear Flatten
+
+# Nuclear Flatten sequence:
+# 1. Cancel ALL working orders
+# 2. Market-exit ALL positions (Net_Position = 0)
+# 3. Publish RISK_LIMIT_BREACHED event
+# 4. Set bot to DORMANT state
+# 5. Log critical alert
+# 6. In live mode: os._exit(1) — kill process, require human restart
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 13: PORTFOLIO MANAGER (M16) — 5 Risk Gates
+#
+# Evaluation order: P3 → P4 → P5 → P1 → P2
+# (Cheapest checks first, most expensive last)
+# ALL gates must pass for a new entry to be allowed.
+# ══════════════════════════════════════════════════════════════════════
+
+[portfolio]
+
+# P1: Maximum Total Exposure
+# Total risk across ALL open positions as fraction of equity.
+p1_max_total_exposure = 0.06         # 6% of account equity
+
+# P2: Correlation Group Limit
+# Maximum positions per correlation group (e.g., all tech stocks).
+p2_max_per_group = 3
+
+# P3: Daily Drawdown Gate
+# If daily P&L hits this, no new entries (but existing positions managed).
+# Different from Nuclear Flatten: P3 blocks entries, Nuclear flattens ALL.
+p3_daily_drawdown_limit = -0.02      # -2% of equity blocks new entries
+
+# P4: Loss Streak Gate
+# After N consecutive losses, block new entries until a winning trade.
+p4_max_loss_streak = 3
+
+# P5: Post-Nuclear Lockout
+# After a Nuclear Flatten, block all entries for this many seconds.
+# Requires human acknowledgment in live mode.
+p5_lockout_seconds = 300             # 5 minutes
+
+
+# ─── Correlation Groups ────────────────────────────────────────────
+
+[portfolio.correlation_groups]
+# Default groups. Override per profile for asset-class specific groupings.
+# Instruments in the same group are assumed to be highly correlated.
+# P2 gate limits positions within each group.
+
+# Futures
+A = ["ES", "NQ", "YM"]               # US equity index futures
+B = ["GC", "SI"]                      # Precious metals
+C = ["CL", "NG"]                      # Energy
+D = ["ZB", "ZN"]                      # Treasuries
+
+# Crypto (defined in profile_crypto.toml)
+# E = ["BTC", "ETH"]
+# F = ["SOL", "AVAX", "MATIC"]
+
+# Equities (defined in profile_equities.toml)
+# G = ["NVDA", "AMD", "INTC"]         # Semiconductors
+# H = ["AAPL", "MSFT", "GOOGL"]       # Mega-cap tech
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 14: VELEZ MA MODULE CONSTANTS
+# Moving average periods and thresholds for Tier 2 scoring.
+# ══════════════════════════════════════════════════════════════════════
+
+[velez]
+# Timeframe for all Velez MA calculations
+ma_timeframe = "2m"
+
+# 20 SMA Halt (T12)
+sma_20_period = 20
+
+# Flat 200 SMA (T13)
+sma_200_period = 200
+flat_200_slope_threshold = 0.001     # Slope < this = "flat"
+
+# Elephant Bar (T14) — thresholds in [scoring.tier2]
+
+# 20 SMA Micro-Trend (T15)
+micro_trend_slope_threshold = 0.0005  # Minimum slope to count as "sloping"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 15: RUNNER HEALTH & TRAIL CONSTANTS
+# ══════════════════════════════════════════════════════════════════════
+
+[runner_health]
+# 20 SMA Health Check (T21) — modifies tape failure threshold
+breach_count = 3              # 3 consecutive breaches = weakening
+reset_count = 2               # 2 holds = reset health
+tightened_delta = 0.65        # Threshold tightens from 0.80 to 0.65
+
+[exit_watchzone]
+# 200 SMA Exit Watch Zone (T22)
+proximity_mult = 1.0          # Target within 1 × ATR of 200 SMA
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 16: DATA FEED CONFIGURATION
+# DataBento connection and Ring Buffer settings.
+# ══════════════════════════════════════════════════════════════════════
+
+[data]
+# DataBento
+provider = "databento"
+databento_dataset = "GLBX.MDP3"       # CME Globex (for ES futures)
+
+# Schema tiers (T33: Schema Shifting)
+scouting_schema = "ohlcv-1m"          # Low compute: 1-minute bars
+stalking_schema = "ohlcv-1m"          # Medium: 1-minute bars + order book
+kill_schema = "trades"                # Maximum: tick-by-tick trades
+
+# Ring Buffer sizing
+ring_buffer_dtype = "trade_tick"      # NumPy structured array type
+
+# Volume Profile
+vp_bucket_count = 50                  # Price buckets for micro VP
+vp_value_area_pct = 0.70             # 70% of volume = Value Area
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 17: DATABASE CONFIGURATION
+# PostgreSQL for trade logging, pgvector for semantic search.
+# ══════════════════════════════════════════════════════════════════════
+
+[database]
+host = "localhost"
+port = 5432
+name = "flof_matrix"
+user = "flof"
+# password loaded from environment variable FLOF_DB_PASSWORD
+
+# pgvector embedding model
+embedding_model = "text-embedding-3-small"
+embedding_dimensions = 1536
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 18: PESSIMISTIC FILL ENGINE (Backtesting)
+# Three levels of fill pessimism. Level 2 is default for backtesting.
+# ══════════════════════════════════════════════════════════════════════
+
+[backtest]
+default_fill_level = 2               # 1=Optimistic, 2=Standard, 3=Conservative
+
+[backtest.fill_level_1]
+# Optimistic: Limit orders fill at touch. No slippage. No partial fills.
+name = "Optimistic"
+slippage_ticks = 0
+require_through_fill = false
+partial_fill_rate = 1.0
+
+[backtest.fill_level_2]
+# Standard: Limit orders require price to trade through. 1 tick slippage on markets.
+name = "Standard"
+slippage_ticks = 1
+require_through_fill = true
+partial_fill_rate = 0.85             # 85% fill rate on limits
+
+[backtest.fill_level_3]
+# Conservative: 2 ticks slippage. Aggressive partial fill rejection.
+name = "Conservative"
+slippage_ticks = 2
+require_through_fill = true
+partial_fill_rate = 0.65             # 65% fill rate on limits
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 19: EVENT BUS CONFIGURATION
+# ══════════════════════════════════════════════════════════════════════
+
+[event_bus]
+# Maximum queue depth per event type (backpressure protection)
+max_queue_depth = 1000
+
+# Event types registered at startup
+event_types = [
+    "ORDER_FIRED",
+    "POSITION_CLOSED",
+    "RISK_LIMIT_BREACHED",
+    "STALE_DATA_ALERT",
+    "MACRO_DUMP_DETECTED",
+    "CHOP_DETECTED",
+    "CHOP_CLEARED",
+    "EOD_FLATTEN_WARNING",
+    "EOD_FLATTEN_EXECUTE",
+    "GEX_UPDATE",
+    "DAILY_RESET",
+]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 20: PERFORMANCE & HOT-PATH RULES
+# From v3.5: latency budgets and optimization constraints.
+# ══════════════════════════════════════════════════════════════════════
+
+[performance]
+# Maximum latency budgets (microseconds)
+ring_buffer_push_max_us = 5           # O(1) push must be < 5μs
+confluence_score_max_us = 500         # Full scoring < 500μs
+gate_evaluation_max_us = 100          # Each gate check < 100μs
+event_delivery_max_ms = 1             # Event bus delivery < 1ms
+
+# Hot-path rules:
+# 1. Ring Buffer: NumPy pre-allocated. No Python list appends.
+# 2. ConfluenceScorer: No I/O. Pure computation on in-memory data.
+# 3. PortfolioManager: Cached aggregates. O(1) exposure lookup.
+# 4. RiskOverlord: Direct ExecutionEngine access. No event bus for kill.
+# 5. Volume Profile: Pre-bucketed. No per-tick recalculation.
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 21: EPISTEMIC ENGINE (Phase 5)
+# AI learning layer configuration. Placeholders for future use.
+# ══════════════════════════════════════════════════════════════════════
+
+[epistemic]
+enabled = false                       # Activated in Phase 5
+
+[epistemic.batch_runner]
+# E01: Parallel backtest experiments
+max_parallel_runs = 4
+default_data_split = "out_of_sample"
+
+[epistemic.trade_logger]
+# E02: PostgreSQL writer + embedding pipeline
+auto_embed = false                    # Auto-generate embeddings on log
+summary_model = "claude-sonnet-4-5-20250929" # For text_summary generation
+
+[epistemic.knowledge_graph]
+# E03: Neo4j edge management
+neo4j_host = "localhost"
+neo4j_port = 7687
+
+[epistemic.rag_interface]
+# E04: LangChain + Claude API for recommendations
+model = "claude-sonnet-4-5-20250929"
+max_evidence_trades = 20              # Max trades to include as evidence
+min_confidence = "medium"             # Minimum confidence to surface recommendation
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 22: OPTIONS MODULE (Phase 3)
+# Configuration for the 5 options strategies.
+# ══════════════════════════════════════════════════════════════════════
+
+[options]
+enabled = false                       # Activated in Phase 3
+
+# GEX data source
+gex_provider = "spotgamma"
+gex_update_interval_minutes = 60
+
+# Strategy configurations
+[options.debit_spread]
+# Directional: A+ signal → buy debit spread instead of underlying
+max_dte = 14                          # Max days to expiration
+min_delta = 0.55                      # Minimum long leg delta
+spread_width = 5                      # Strike width in dollars
+
+[options.credit_spread]
+# Counter-trend: Sell OTM spread against the trend
+min_dte = 7
+max_delta = 0.25                      # Short leg max delta
+spread_width = 5
+
+[options.iron_condor]
+# Chop monetization (T50): Sell IC when G3 chop detected
+min_dte = 7
+put_delta = 0.15
+call_delta = 0.15
+spread_width = 5
+
+[options.protective_put]
+# Portfolio hedge: Buy puts when macro regime turns bearish
+max_cost_pct = 0.005                  # Max 0.5% of equity per hedge
+min_dte = 30
+
+[options.calendar_spread]
+# Volatility play: Around high-impact events
+front_dte = 7
+back_dte = 30
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SECTION 23: FOREX CARRY TRADE MODULE (Phase 4)
+# Weekly rebalancing strategy for high-yield currency pairs.
+# ══════════════════════════════════════════════════════════════════════
+
+[carry_trade]
+enabled = false                       # Activated in Phase 4
+
+# Eligible pairs (sorted by typical carry)
+pairs = ["AUD/JPY", "NZD/JPY", "MXN/JPY", "USD/TRY"]
+
+# Risk allocation
+max_carry_exposure = 0.10             # 10% of equity max for carry
+per_pair_max = 0.03                   # 3% per pair
+
+# Rebalance schedule
+rebalance_day = "Monday"
+rebalance_time = "08:00"
+rebalance_timezone = "US/Eastern"
+
+# Entry conditions (requires HTF alignment from M03)
+min_rate_differential_bps = 200       # Minimum 200bps carry to enter
+require_htf_alignment = true          # Must align with macro bias
+
+# Risk management
+carry_stop_atr_mult = 3.0            # Wider stops for weekly timeframe
+macro_dump_tighten_pct = 0.50        # Tighten stops 50% on MACRO_DUMP event
+
+
+# ══════════════════════════════════════════════════════════════════════
+# END OF FLOF_BASE.TOML
+# ══════════════════════════════════════════════════════════════════════
+# Next file: config/profiles/profile_futures.toml (ES Futures overrides)
+# ══════════════════════════════════════════════════════════════════════
