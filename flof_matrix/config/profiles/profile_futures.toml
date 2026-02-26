@@ -1,0 +1,125 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║        FLOF MATRIX — PROFILE: ES FUTURES (Phase 1 Baseline)        ║
+# ║                                                                      ║
+# ║  This file OVERRIDES values from flof_base.toml for ES Futures.     ║
+# ║  Only values that DIFFER from base defaults are listed here.         ║
+# ║  If a key is not present, the base default is used.                  ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+
+[system]
+profile = "futures"
+instrument = "ES"
+timezone = "US/Eastern"
+
+
+# ─── Killzones (ES-specific) ───────────────────────────────────────
+
+[killzones]
+enabled = true
+
+[killzones.ny_am]
+start = "09:30"
+end = "11:30"
+timezone = "US/Eastern"
+
+[killzones.ny_pm]
+start = "13:30"
+end = "15:30"
+timezone = "US/Eastern"
+
+# No London/NY overlap for ES (relevant for forex only)
+[killzones.london_ny_overlap]
+start = "08:00"
+end = "09:30"
+timezone = "US/Eastern"
+
+[eod_flatten]
+futures_flatten_time = "15:50"        # Flatten 10 min before 4:00 PM close
+warning_minutes_before = 10
+
+
+# ─── DataBento Configuration ───────────────────────────────────────
+
+[data]
+provider = "databento"
+databento_dataset = "GLBX.MDP3"       # CME Globex
+scouting_schema = "ohlcv-1m"
+stalking_schema = "ohlcv-1m"
+kill_schema = "trades"
+
+
+# ─── ES-Specific Order Flow Thresholds ─────────────────────────────
+
+[order_flow]
+# ES typically has tighter spreads and higher volume than crypto.
+# These thresholds are tuned for ES tick characteristics.
+whale_print_multiplier = 5.0          # 5x average trade size
+whale_block_min_prints = 3
+absorption_volume_threshold = 2.0
+absorption_displacement_max = 0.3
+
+# CVD divergence is highly reliable on ES due to centralized order book.
+cvd_divergence_lookback_seconds = 30
+
+
+# ─── ES-Specific Sudden Move Thresholds ────────────────────────────
+
+[sudden_move]
+spread_quarantine_es_ticks = 3        # Normal ES spread = 1 tick (0.25 pt)
+heartbeat_timeout_es_seconds = 5      # During RTH, no tick for 5s = stale
+databento_latency_max_ms = 500
+tick_velocity_threshold_pct = 400
+range_expansion_threshold = 3.0
+
+
+# ─── Risk Overlord (ES-specific) ───────────────────────────────────
+
+[risk_overlord]
+max_concurrent_positions = 3          # ES only: max 3 simultaneous positions
+max_daily_drawdown_pct = -0.03        # -3% daily drawdown limit
+max_orders_per_minute = 3
+max_consecutive_losses = 3
+
+
+# ─── Portfolio Manager (ES) ────────────────────────────────────────
+
+[portfolio]
+p1_max_total_exposure = 0.06          # 6% total exposure
+p2_max_per_group = 2                  # Max 2 within same correlation group
+
+[portfolio.correlation_groups]
+# For Phase 1 (ES only), all ES positions are in the same group.
+A = ["ES", "NQ", "YM"]               # US equity index futures
+
+
+# ─── Execution (ES-specific) ──────────────────────────────────────
+
+[execution]
+# CME order types
+default_order_type = "market_with_protection"  # MWP for ES (T11)
+oco_type = "stop_with_protection"              # SWP for OCO bracket
+tick_size = 0.25                               # ES tick = $0.25
+point_value = 50.0                             # ES point = $50
+
+
+# ─── Backtest (ES) ────────────────────────────────────────────────
+
+[backtest]
+default_fill_level = 2                # Standard pessimism for ES
+# ES has deep liquidity, so Level 2 is appropriate.
+# Level 3 reserved for less liquid instruments.
+
+
+# ══════════════════════════════════════════════════════════════════════
+# NQ Futures Overrides
+# Apply when instrument = "NQ" (selected via --instrument NQ flag)
+# ══════════════════════════════════════════════════════════════════════
+
+[instruments.NQ]
+tick_size = 0.25                      # NQ tick = $0.25
+point_value = 20.0                    # NQ point = $20 (vs ES $50)
+symbol = "NQH5"
+underlying = "NQ"
+base_price = 17000.0                  # Approximate NQ level for synthetic data
+daily_atr = 200.0                     # NQ has wider ATR than ES

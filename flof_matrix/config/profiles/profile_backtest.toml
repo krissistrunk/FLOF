@@ -1,0 +1,119 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║     FLOF MATRIX — PROFILE: BACKTEST (Synthetic Data Optimized)     ║
+# ║                                                                      ║
+# ║  This file OVERRIDES values from flof_base.toml for backtesting     ║
+# ║  on synthetic data. Relaxed parameters account for synthetic data   ║
+# ║  limitations (no real order flow, limited sweep mechanics, etc.)    ║
+# ║                                                                      ║
+# ║  For live/paper trading, use profile_futures.toml instead.          ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+
+[system]
+profile = "backtest"
+instrument = "ES"
+timezone = "US/Eastern"
+
+
+# ─── Relaxed Gates for Synthetic Data ─────────────────────────────
+
+[gates]
+# G2: Inducement not reliably generated in synthetic data
+g2_inducement_required = false
+
+# G3: Wider chop tolerance — synthetic data has less structured VA
+g3_chop_va_atr_ratio = 1.0
+
+
+# ─── Scoring Thresholds ─────────────────────────────────────────
+
+[scoring.tier1]
+# Moderate gate — enough to filter noise but let synthetic data through
+gate_minimum = 6
+
+# Relaxed CHOCH displacement for synthetic price action
+choch_displacement_atr_mult = 1.0
+
+
+# ─── Grading ─────────────────────────────────────────────────────
+
+[grading]
+a_plus_min = 12
+a_min = 10
+b_min = 8
+
+
+# ─── Relaxed Predator Halo ───────────────────────────────────────
+
+[predator]
+proximity_halo_atr_mult = 2.0
+
+
+# ─── Relaxed Risk Overlord ────────────────────────────────────────
+
+[risk_overlord]
+max_consecutive_losses = 20
+max_daily_drawdown_pct = -0.15
+max_concurrent_positions = 3
+
+
+# ─── Portfolio Gates ──────────────────────────────────────────────
+
+[portfolio]
+p1_max_total_exposure = 0.10
+p2_max_per_group = 1               # Only 1 position at a time to prevent overtrading
+p3_daily_drawdown_limit = -0.10
+p4_max_loss_streak = 10
+
+
+# ─── Stops + Toxicity Timer ──────────────────────────────────────
+
+[stops]
+# 30 minutes — give trades time to reach target on synthetic data
+toxicity_timer_seconds = 1800
+# Wider stops so synthetic noise doesn't knock us out
+atr_stop_multiplier = 3.0
+
+[phase1]
+# 1.5R target is more achievable on synthetic data than 2R
+target_r = 1.5
+
+
+# ─── Killzones (same as futures) ─────────────────────────────────
+
+[killzones]
+enabled = true
+
+[killzones.ny_am]
+start = "09:30"
+end = "11:30"
+timezone = "US/Eastern"
+
+[killzones.ny_pm]
+start = "13:30"
+end = "15:30"
+timezone = "US/Eastern"
+
+[killzones.london_ny_overlap]
+start = "08:00"
+end = "09:30"
+timezone = "US/Eastern"
+
+[eod_flatten]
+futures_flatten_time = "15:50"
+warning_minutes_before = 10
+
+
+# ─── Execution (same as futures) ─────────────────────────────────
+
+[execution]
+default_order_type = "market_with_protection"
+oco_type = "stop_with_protection"
+tick_size = 0.25
+point_value = 50.0
+
+
+# ─── Backtest Fill Settings ──────────────────────────────────────
+
+[backtest]
+default_fill_level = 2
