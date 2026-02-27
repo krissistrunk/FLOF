@@ -277,34 +277,135 @@ See `docs/original_design/README.md` for a full categorized index.
 
 ---
 
-## 13. Next Steps (Brainstorm)
+## 13. A/B Testing Session (Feb 27) — Determinism, G1, VWAP Filter
 
-Prioritized by expected impact and feasibility:
+### Testing Methodology Mistake
 
-### HIGH Priority
+All direct `BacktestRunner.run(bars)` calls during earlier sessions used **synthetic ticks** (20 pseudo-ticks per bar). The canonical `run_backtest.py` script auto-discovers real tick data (`ESH6_trades_2026-01-02_2026-01-31.dbn.zst`, 135MB) and feeds it to the runner. This means some earlier A/B comparisons were invalid — they were comparing different input data, not different strategies.
 
-**1. T1 Gate Relaxation (7 → 6)**
-The T1 score gate kills 34.5% of candidates. Lowering from 7 to 6 is a single config change. Compare trade count, win rate, avg R, and max drawdown against baseline. This is the lowest-risk, highest-information experiment.
+**Rule established:** All testing must use `python scripts/run_backtest.py` which auto-loads real ticks. The backtest is 100% deterministic when using the same data.
 
-**2. Real Tick Data Backtest**
-The entire shadow experiment was run on synthetic ticks. Order flow scoring (OF gate) is designed for real microstructure — divergence, imbalance, absorption require genuine Level 2 data. A real-tick backtest on even one week of DataBento data would tell us if OF scoring is genuinely broken or if it's a data quality issue.
+### Deterministic Baseline (Commit 568703b)
 
-### MEDIUM Priority
+Full month (Jan 2-30, 28,680 bars, real ticks):
+- **PnL: -$4,138** | 88 trades | 47.7% WR | 11.2% DD
+- Verified identical across 2 runs — fully deterministic
 
-**3. G1 Premium/Discount Softening**
-Convert G1 from a binary gate (reject if not in premium/discount zone) to a scoring input (+1 confluence point if in zone, no penalty if not). This preserves the signal value without the 39.6% kill rate.
+### G1 Premium/Discount Demotion — FAILED
 
-**4. Dynamic T1 Gate by Regime**
-Instead of a fixed threshold, adapt to market regime: trending markets = 6 (easier entry), ranging = 7 (standard), volatile = 8 (higher bar). The regime detector already exists in the Predator module.
+Demoting G1 from hard gate to +1 scoring bonus:
+- **PnL: -$26,004** | 139 trades | 38.1% WR | **28.1% DD**
+- Added 51 marginal trades at full 1% risk — each loss costs ~$1K
+- The shadow experiment showing G1 as "COSTLY" was misleading: shadow used 0.5% risk for failed-gate trades, masking the position sizing amplification
 
-### LOW Priority
+**Lesson learned:** Shadow mode's uniform 0.5% sizing makes all gate removals look beneficial. At full sizing, marginal trades from relaxed gates are devastating. Never trust shadow PnL numbers for gate removal decisions — only use shadow for identifying which gates to *investigate*, not which to *remove*.
 
-**5. Toxicity Timer Extension (120s → 180s)**
-Give winning trades 50% more time before the T48 toxicity check can exit them. Risk: larger adverse moves on true reversals.
+### Macro Bias Counter-Trend Filter — REGIME-DEPENDENT
 
-**6. Walk-Forward Validation Framework**
-Before tuning any gates based on shadow data, implement train/test split validation. Otherwise we're fitting to the backtest dataset and any "improvements" may not generalize. This should arguably be MEDIUM priority, but it's listed as LOW because the tooling is straightforward (split data by date, run both halves, compare).
+Using Daily/4H macro bias to block counter-trend Grade B trades:
+- 2-week data (strong bull): -$5,686 → -$1,546 (saved $4,139)
+- Full-month data (mixed): -$4,138 → worse (macro bias too lagging)
+
+**Problem:** Daily/4H bias is too slow for intraday execution. By the time the daily flips bearish, a 2-day pullback is already over. Good shorts during pullbacks get blocked.
+
+### Session VWAP Counter-Trend Filter — BREAKTHROUGH
+
+Replaced macro bias with Session VWAP: block shorts above VWAP and longs below VWAP unless Grade A.
+- **PnL: +$480** | 29 trades | **51.7% WR** | **6.0% DD**
+- vs Baseline: **+$4,618 improvement**
+
+| Metric | Baseline | VWAP Filter |
+|--------|:-:|:-:|
+| PnL | -$4,138 | **+$480** |
+| Trades | 88 | 29 |
+| WR | 47.7% | **51.7%** |
+| DD | 11.2% | **6.0%** |
+
+Direction split: 21 longs (+$1,232) vs 8 shorts (-$752). The filter correctly biases for the bull trend while still allowing below-VWAP shorts during pullbacks.
+
+**Why VWAP works and macro bias doesn't:** Session VWAP resets daily, responds to intraday price action, and reflects where actual volume transacted. It's a real-time reference, not a lagging indicator.
+
+### Absolute Tick Floor (1.5 pts) — FAILED
+
+Hardcoded minimum stop distance hurt because it pushes 2R targets further away. In choppy markets, ES gives 2-3 points but rarely 4+ in a straight line. The dynamic 1.0x ATR floor adapts better.
 
 ---
 
-*Last updated: February 26, 2025*
+## 14. Trade Anatomy (Post-VWAP Filter)
+
+### Exit Reason Distribution
+
+| Exit | Count | % | Avg R | Assessment |
+|------|:-----:|:-:|:-----:|:----------:|
+| Stop Hit | 17 | 59% | -0.57R | Problem |
+| Tape Failure | 4 | 14% | -0.02R | Neutral |
+| Toxicity Exit | 3 | 10% | +6.30R | Good |
+| Target Hit | 3 | 10% | +27.81R | Excellent |
+| Absorption Climax | 2 | 7% | +50.50R | Exceptional |
+
+**79.6% of total PnL comes from just 2 Absorption Climax trades** (+$3,944). The remaining 27 trades net -$3,464. The system is profitable but fragile — dependent on rare exceptional exits.
+
+### Scoring Distribution
+
+| Tier | Avg | Range | Assessment |
+|------|:---:|:-----:|:----------:|
+| Tier 1 (Structural) | 7.5 | 6–9 | Low variance, weak discrimination |
+| Tier 2 (Order Flow) | 0.1 | 0–2 | Nearly dead — synthetic ticks don't trigger OF |
+| Tier 3 (Confluence) | 2.7 | 1–3 | Working as designed |
+| Total | 10.2 | 9–12 | All trades cluster near Grade B minimum |
+
+### Stop Placement
+
+Average stop distance: 4.04 points. Average target distance: 7.33 points. R:R ratio averages 1:1.78.
+
+59% of trades exit on stop-hit. Stops are placed inside normal 1-minute bar volatility, causing whipsaw exits before the trade thesis has time to develop.
+
+---
+
+## 15. Next Steps (Brainstorm)
+
+Prioritized by expected impact:
+
+### CRITICAL — Fix Stop Whipsaws
+
+**1. Widen Stop Placement**
+59% stop-hit rate at -0.57R is the #1 PnL killer. Avg stop is 4.04 pts — inside 1m bar noise. Options:
+- Increase `min_stop_atr_mult` from 1.0 → 1.5 (tested before at 1.5, was too wide — try 1.25)
+- Use higher timeframe ATR (5m or 15m) for stop calculation instead of 1m ATR
+- Require LVN to be at minimum distance before using VP-based stops
+
+**2. Partial Profit Taking**
+Instead of all-or-nothing 2R targets, scale out 50% at 1R and let the remainder run. This locks in profit on more trades instead of relying on 2 rare climax exits for 80% of PnL.
+
+### HIGH — Increase Trade Volume
+
+**3. Grade Threshold Relaxation (B min 9 → 8)**
+96.3% of candidates are rejected. Even a 1-point relaxation could add 10-20 trades. The current scoring clusters at 9-12 — an 8-point threshold would allow setups that just miss one criterion.
+
+**4. Activate Tier 2 in Backtest**
+Tier 2 (Order Flow) averages 0.1 points — it's nearly dead because ring buffer synthetic ticks don't meet the 100-tick threshold. Options:
+- Lower tick threshold for synthetic mode
+- Or: acknowledge Tier 2 is a live-only feature and remove its scoring weight from backtest calibration
+
+### MEDIUM — Improve Trade Quality
+
+**5. Multi-Timeframe Stop Anchoring**
+Instead of 1m ATR for stops, use max(1m_ATR, 5m_ATR × 0.5) to anchor stops to broader structure. Prevents 1m bar wicks from triggering stops.
+
+**6. Dynamic Risk by Win Streak**
+After 2+ consecutive wins, increase risk from 1% → 1.25%. After 2+ consecutive losses, decrease to 0.75%. Amplify proven momentum, reduce exposure during drawdowns.
+
+**7. Walk-Forward Validation**
+Split the month into 2-week train/test windows. Optimize on week 1-2, validate on week 3-4. Critical before tuning any more parameters.
+
+### LOW — Infrastructure
+
+**8. Longer Backtest Period**
+29 trades over 1 month is a tiny sample. Need 3-6 months of data (DataBento) for statistical significance. Current results could be noise.
+
+**9. Commission/Fee Modeling**
+Add realistic commission costs ($2.50/contract round-turn for ES) to the backtest. At 29 trades × avg 5.8 contracts × $2.50 = $420 in commissions alone — nearly the entire $480 profit.
+
+---
+
+*Last updated: February 27, 2026*
