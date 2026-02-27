@@ -857,6 +857,7 @@ class FlofStrategy:
             use_vp=self._config.is_toggle_enabled("T17"),
             atr_fallback_mult=self._config.get("stops.atr_stop_multiplier", 2.0),
             min_stop_atr_mult=self._config.get("stops.min_stop_atr_mult", 1.0),
+            min_stop_absolute_pts=self._config.get("stops.min_stop_absolute_pts", 0.0),
         )
         target_r = self._config.get("phase1.target_r", 2.0)
         pre_risk = abs(self._current_price - stop_price)
@@ -904,6 +905,8 @@ class FlofStrategy:
             a_plus_min=self._config.get("grading.a_plus_min", 14),
             a_min=self._config.get("grading.a_min", 12),
             b_min=self._config.get("grading.b_min", 9),
+            g1_enabled=self._config.get("gates.g1_premium_discount_enabled", True),
+            g1_bonus=self._config.get("gates.g1_premium_discount_bonus", 1),
             g2_required=self._config.get("gates.g2_inducement_required", True),
         )
 
@@ -939,6 +942,22 @@ class FlofStrategy:
                 if self._trade_logger:
                     self._trade_logger.log_rejection(rejection)
                 return
+
+        # VWAP counter-trend filter: require Grade A when trading against session VWAP
+        # Shorting above VWAP or longing below VWAP = counter-trend → needs higher conviction
+        session_vwap = self._session_profiler._vwap
+        if session_vwap > 0:
+            is_counter_vwap = (
+                (poi.direction == TradeDirection.SHORT and self._current_price > session_vwap)
+                or (poi.direction == TradeDirection.LONG and self._current_price < session_vwap)
+            )
+            if is_counter_vwap and signal.grade not in (Grade.A, Grade.A_PLUS):
+                if self._shadow_mode:
+                    shadow_gates_failed.append("vwap_counter_trend")
+                else:
+                    logger.info("VWAP counter-trend rejected: %s at %.2f vs VWAP %.2f, grade %s",
+                                poi.direction.name, self._current_price, session_vwap, signal.grade.value)
+                    return
 
         # Portfolio gates
         passed, reason = self._portfolio.evaluate_gates(

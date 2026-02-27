@@ -326,7 +326,8 @@ T50_iron_condor_chop = false  # Default OFF until Phase 3
 # G1: Premium/Discount Filter
 # Longs must be in discount (below 50% of range). Shorts in premium.
 # This ensures entries align with institutional value areas.
-g1_premium_discount_enabled = true
+g1_premium_discount_enabled = true   # Hard gate: demoting causes 28% DD due to position sizing amplification
+g1_premium_discount_bonus = 1        # +1 Tier 1 point when in correct zone
 
 # G2: Inducement Verification
 # Requires a liquidity sweep (inducement) before POI tap.
@@ -474,6 +475,7 @@ atr_stop_multiplier = 2.0         # 2x 1m ATR below entry
 
 # Stop floor — minimum distance to survive bar noise
 min_stop_atr_mult = 1.0           # Stop must be at least 1.0x ATR from entry (prevents suicide stops)
+min_stop_absolute_pts = 0.0       # Absolute minimum stop distance in points (disabled for testing)
 
 # Micro trailing stop — move to breakeven once this R-multiple reached
 micro_trail_activation_r = 1.0    # At +1.0R, stop moves to BE+1tick

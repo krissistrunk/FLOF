@@ -71,6 +71,8 @@ class ScoringContext:
     b_min: int = 9
 
     # Gate overrides
+    g1_enabled: bool = True
+    g1_bonus: int = 1  # Tier 1 bonus points when in correct premium/discount zone
     g2_required: bool = True
 
     # Scoring points (from config)
@@ -121,7 +123,7 @@ class ConfluenceScorer:
         self.last_rejection = None
 
         # === GATE 1: Premium/Discount ===
-        if not self._check_g1(ctx):
+        if ctx.g1_enabled and not self._check_g1(ctx):
             direction = "LONG" if ctx.poi.direction == TradeDirection.LONG else "SHORT"
             self.last_rejection = {
                 "gate": "G1_premium_discount",
@@ -314,6 +316,10 @@ class ConfluenceScorer:
         # +1 Killzone Timing
         if ctx.in_killzone:
             score += ctx.killzone_points
+
+        # +1 Premium/Discount bonus (when G1 is demoted from gate to scoring)
+        if not ctx.g1_enabled and self._check_g1(ctx):
+            score += ctx.g1_bonus
 
         return score
 

@@ -109,11 +109,13 @@ class VolumeProfileEngine:
         atr_fallback_mult: float = 2.0,
         lvn_atr_buffer: float = 0.5,
         min_stop_atr_mult: float = 1.5,
+        min_stop_absolute_pts: float = 0.0,
     ) -> float:
         """T17: Stop behind nearest LVN - (0.5 × ATR); fallback: 2× ATR.
 
-        A stop floor of min_stop_atr_mult × ATR is enforced to prevent
-        stops tighter than market noise ("suicide stops").
+        Two stop floors are enforced (whichever is wider wins):
+        1. min_stop_atr_mult × ATR — relative to current volatility
+        2. min_stop_absolute_pts — absolute minimum (e.g. 1.5 pts for ES)
         """
         if not use_vp:
             # Fallback: 2x ATR
@@ -140,9 +142,10 @@ class VolumeProfileEngine:
                 else:
                     stop = entry_price + atr_fallback_mult * atr
 
-        # Enforce stop floor: stop must be at least min_stop_atr_mult × ATR
-        # from entry to survive normal bar noise
-        min_distance = min_stop_atr_mult * atr
+        # Enforce stop floor: whichever is wider wins
+        # 1. ATR-relative floor
+        # 2. Absolute floor (prevents stops inside bid/ask noise)
+        min_distance = max(min_stop_atr_mult * atr, min_stop_absolute_pts)
         actual_distance = abs(stop - entry_price)
         if actual_distance < min_distance:
             stop = entry_price - direction * min_distance
